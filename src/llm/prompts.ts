@@ -91,6 +91,16 @@ FOR ECONOMIC SECTOR CLASSIFICATION:
 - IMPORTANT: Storage of agricultural produce is TERTIARY (it's a service), NOT Secondary
 - Mineral exploration is PRIMARY (part of mining/extraction), not Tertiary
 
+FOR "LATEST/MOST RECENT" QUESTIONS:
+- Verify EACH option's date from search results - don't assume based on prior knowledge
+- UNESCO IDs: Higher ID numbers = more recent inscriptions (e.g., 01962 > 00703)
+- Garba was inscribed in 2023, making it more recent than Durga Puja (2021)
+- Always check for 2023-2024 updates that may supersede older knowledge
+
+FOR GOVERNMENT OF INDIA ACT 1935:
+- Defence and Foreign Affairs were RESERVED SUBJECTS under Governor-General, NOT federal legislature
+- The federal legislature could NOT control defence/foreign affairs - these were Crown reserved
+
 CHANGE YOUR ANSWER if search results contradict your previous analysis. This is critical.
 
 RESPOND IN JSON FORMAT:

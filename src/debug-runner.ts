@@ -215,6 +215,9 @@ async function runQuestion(question: { id: number; question: string; options: Re
       (questionLower.includes('rbi') || questionLower.includes('reserve bank') ||
        questionLower.includes('sebi') || questionLower.includes('nbfc') ||
        questionLower.includes('fii') || questionLower.includes('fpi'));
+    const isPolityAct = classified.subjectArea === 'POLITY' &&
+      (questionLower.includes('act') || questionLower.includes('constitution') ||
+       questionLower.includes('article') || questionLower.includes('amendment'));
     const mustSearchFirst = iteration === 1 && searchCount === 0 &&
       (classified.type === 'STATEMENT_ANALYSIS' ||
        classified.type === 'HOW_MANY_CORRECT' ||
@@ -222,7 +225,8 @@ async function runQuestion(question: { id: number; question: string; options: Re
        classified.type === 'MATCH_PAIRS' ||
        classified.type === 'FACTUAL_RECALL' ||
        isDescriptionQuestion ||
-       isEconomyRegulation);
+       isEconomyRegulation ||
+       isPolityAct);
 
     // If confidence is high enough AND we've done mandatory searches, stop iterating
     if (currentConfidence >= 0.95 && !mustSearchFirst) {
