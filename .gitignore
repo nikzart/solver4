@@ -1,0 +1,7 @@
+node_modules/
+logs/
+.env
+*.log
+.DS_Store
+bun.lockb
+full_test_output.txt

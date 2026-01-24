@@ -1,0 +1,27 @@
+{
+  "name": "upsc-solver-agent",
+  "version": "1.0.0",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "test": "bun run src/index.ts --question=1",
+    "test:10": "bun run src/index.ts --start=0 --end=10",
+    "all": "bun run src/index.ts",
+    "no-search": "bun run src/index.ts --no-search"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/cli-progress": "^3.11.6"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "cli-progress": "^3.12.0",
+    "cli-table3": "^0.6.5",
+    "zod": "^4.3.6"
+  }
+}
