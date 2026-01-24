@@ -84,6 +84,13 @@ FOR "HOW MANY ARE PRODUCTS/CHARACTERISTICS" QUESTIONS:
 - "Trace amounts" or "minor" still means YES it is a product/characteristic
 - UPSC uses inclusive interpretation: if X is emitted/present at all, it counts
 
+FOR ECONOMIC SECTOR CLASSIFICATION:
+- Primary: extraction/agriculture (farming, mining, fishing, dairy farming)
+- Secondary: manufacturing/processing (weaving, construction, factory production)
+- Tertiary: SERVICES (storage, transport, trade, banking, warehousing)
+- IMPORTANT: Storage of agricultural produce is TERTIARY (it's a service), NOT Secondary
+- Mineral exploration is PRIMARY (part of mining/extraction), not Tertiary
+
 CHANGE YOUR ANSWER if search results contradict your previous analysis. This is critical.
 
 RESPOND IN JSON FORMAT:

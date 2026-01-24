@@ -211,13 +211,18 @@ async function runQuestion(question: { id: number; question: string; options: Re
     const questionLower = classified.question.toLowerCase();
     const isDescriptionQuestion = questionLower.includes('correct description of') ||
                                    questionLower.includes('description of "');
+    const isEconomyRegulation = classified.subjectArea === 'ECONOMY' &&
+      (questionLower.includes('rbi') || questionLower.includes('reserve bank') ||
+       questionLower.includes('sebi') || questionLower.includes('nbfc') ||
+       questionLower.includes('fii') || questionLower.includes('fpi'));
     const mustSearchFirst = iteration === 1 && searchCount === 0 &&
       (classified.type === 'STATEMENT_ANALYSIS' ||
        classified.type === 'HOW_MANY_CORRECT' ||
        classified.type === 'SEQUENCE_ORDER' ||
        classified.type === 'MATCH_PAIRS' ||
        classified.type === 'FACTUAL_RECALL' ||
-       isDescriptionQuestion);
+       isDescriptionQuestion ||
+       isEconomyRegulation);
 
     // If confidence is high enough AND we've done mandatory searches, stop iterating
     if (currentConfidence >= 0.95 && !mustSearchFirst) {
