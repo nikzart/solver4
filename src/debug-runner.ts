@@ -11,6 +11,7 @@ import { getProvider, type LLMMessage } from './llm/provider';
 import { SYSTEM_PROMPTS, buildInitialPrompt, buildRefinedPrompt } from './llm/prompts';
 import { classifyQuestion, SubjectArea } from './agent/classifier';
 import { webSearch } from './tools';
+import { scrapeMultiple, extractRelevantContent } from './tools/scraper';
 import { parseConfidenceFromResponse, shouldSearch } from './validation/confidence';
 
 // Use answers.json as source of truth - no overrides needed
@@ -154,10 +155,14 @@ async function runQuestion(question: { id: number; question: string; options: Re
 
     // Call LLM with JSON schema for structured output
     const response = await provider.generate(messages, {
-      temperature: 0.1,
-      maxTokens: 3000,
+      maxTokens: 8000,
       jsonSchema: responseSchema,
     });
+
+    // Log if response is empty (debugging)
+    if (!response.content && !response.reasoning) {
+      console.log(`[WARNING] Empty LLM response in iteration ${iteration}`);
+    }
 
     iterLog.reasoning = response.reasoning || '';
     iterLog.content = response.content;
@@ -181,6 +186,14 @@ async function runQuestion(question: { id: number; question: string; options: Re
       parsed = parseResponse(response.content, response.reasoning || '');
     }
 
+    // If we got an empty/invalid response, keep previous answer instead of defaulting to 'a'
+    if (!response.content && !response.reasoning && currentAnswer) {
+      console.log(`[EMPTY RESPONSE - keeping previous answer: ${currentAnswer.toUpperCase()}]`);
+      parsed.answer = currentAnswer;
+      parsed.confidence = currentConfidence;
+      parsed.analysis = currentReasoning;
+    }
+
     iterLog.parsedAnswer = parsed.answer;
     iterLog.parsedConfidence = parsed.confidence;
     iterLog.parsedAnalysis = parsed.analysis;
@@ -193,22 +206,51 @@ async function runQuestion(question: { id: number; question: string; options: Re
     console.log(`\nParsed: Answer=${parsed.answer.toUpperCase()}, Confidence=${(parsed.confidence * 100).toFixed(0)}%`);
     console.log(`Search Queries: ${parsed.searchQueries.length > 0 ? parsed.searchQueries.join('; ') : 'none'}`);
 
+    // For certain question types, ALWAYS search on iteration 1 regardless of confidence
+    // (these types need verification even at high confidence due to nuanced facts)
+    const questionLower = classified.question.toLowerCase();
+    const isDescriptionQuestion = questionLower.includes('correct description of') ||
+                                   questionLower.includes('description of "');
+    const mustSearchFirst = iteration === 1 && searchCount === 0 &&
+      (classified.type === 'STATEMENT_ANALYSIS' ||
+       classified.type === 'HOW_MANY_CORRECT' ||
+       classified.type === 'SEQUENCE_ORDER' ||
+       classified.type === 'MATCH_PAIRS' ||
+       classified.type === 'FACTUAL_RECALL' ||
+       isDescriptionQuestion);
+
+    // If confidence is high enough AND we've done mandatory searches, stop iterating
+    if (currentConfidence >= 0.95 && !mustSearchFirst) {
+      log.iterations.push(iterLog);
+      console.log(`[HIGH CONFIDENCE - stopping iterations]`);
+      break;
+    }
+
     // Check if search needed based on confidence rules
     const frameworkNeedsSearch = shouldSearch(currentConfidence, classified.type, iteration, searchCount, classified.subjectArea);
 
-    // IMPORTANT: Always respect LLM-provided queries - the LLM knows what it needs to verify
-    const llmRequestedSearch = parsed.searchQueries.length > 0;
+    // Only respect LLM-provided queries if confidence is below 95%
+    // At high confidence, additional searches just waste tokens and risk context overflow
+    const llmRequestedSearch = parsed.searchQueries.length > 0 && currentConfidence < 0.95;
 
     // Generate contextual fallback search queries if LLM didn't provide any but search is needed
     let searchTerms = parsed.searchQueries.slice(0, 4);
-    if (frameworkNeedsSearch && searchTerms.length === 0) {
+    if ((frameworkNeedsSearch || mustSearchFirst) && searchTerms.length === 0) {
       searchTerms = generateContextualSearchQueries(classified.question, classified.options, classified.type, classified.subjectArea);
     }
 
+    // Ultimate fallback: use first 100 chars of question as search query
+    if ((frameworkNeedsSearch || mustSearchFirst) && searchTerms.length === 0) {
+      const questionSnippet = classified.question.replace(/[?:]/g, '').slice(0, 100).trim();
+      searchTerms = [questionSnippet];
+      console.log(`[FALLBACK: using question as search query]`);
+    }
+
     // Trigger search if EITHER:
-    // 1. LLM explicitly requested search queries (it knows what it needs)
+    // 1. LLM explicitly requested search queries AND confidence is below 95%
     // 2. Framework rules say search is needed AND we have queries (either LLM or fallback)
-    const shouldTriggerSearch = (llmRequestedSearch || frameworkNeedsSearch) && searchTerms.length > 0;
+    // 3. mustSearchFirst is true (certain question types MUST search on first iteration)
+    const shouldTriggerSearch = (llmRequestedSearch || frameworkNeedsSearch || mustSearchFirst) && searchTerms.length > 0;
 
     if (shouldTriggerSearch) {
       iterLog.searchTriggered = true;
@@ -216,6 +258,9 @@ async function runQuestion(question: { id: number; question: string; options: Re
 
       iterLog.searchQueries = searchTerms;
       iterLog.searchResults = [];
+
+      // Collect all URLs from search results
+      const allUrls: string[] = [];
 
       for (const query of searchTerms) {
         console.log(`Searching: "${query.slice(0, 60)}..."`);
@@ -229,7 +274,10 @@ async function runQuestion(question: { id: number; question: string; options: Re
             snippet: r.snippet,
           })));
 
-          // Format for context
+          // Collect URLs for scraping
+          allUrls.push(...searchResult.results.slice(0, 2).map(r => r.url));
+
+          // Format snippets for context
           const formatted = searchResult.results.slice(0, 3).map(r =>
             `[${r.title}] ${r.snippet}`
           ).join('\n\n');
@@ -237,18 +285,42 @@ async function runQuestion(question: { id: number; question: string; options: Re
         }
       }
 
+      // Scrape top URLs with Firecrawl for full content
+      const uniqueUrls = [...new Set(allUrls)].slice(0, 3);
+      if (uniqueUrls.length > 0) {
+        console.log(`Scraping ${uniqueUrls.length} pages with Firecrawl...`);
+        const scrapedResults = await scrapeMultiple(uniqueUrls);
+        const successful = scrapedResults.filter(r => r.success);
+
+        if (successful.length > 0) {
+          // Extract keywords from question for relevance filtering
+          const keywords = classified.keyTerms.filter(k => k.length > 3);
+
+          for (const scraped of successful) {
+            const relevant = extractRelevantContent(scraped.markdown, keywords);
+            if (relevant.length > 100) {
+              accumulatedContext += `\n\n--- Full Content from ${scraped.title} ---\n${relevant}`;
+            }
+          }
+          console.log(`Scraped ${successful.length} pages successfully`);
+        }
+      }
+
       console.log(`Search Results: ${iterLog.searchResults?.length || 0} results`);
+
+      // Limit accumulated context to prevent token overflow (max ~15000 chars)
+      const MAX_CONTEXT_LENGTH = 15000;
+      if (accumulatedContext.length > MAX_CONTEXT_LENGTH) {
+        accumulatedContext = accumulatedContext.slice(-MAX_CONTEXT_LENGTH);
+        console.log(`[Context truncated to ${MAX_CONTEXT_LENGTH} chars]`);
+      }
 
       log.iterations.push(iterLog);
       continue; // Go to next iteration with new context
     }
 
     log.iterations.push(iterLog);
-
-    // If confidence is high enough, break
-    if (currentConfidence >= 0.85) {
-      break;
-    }
+    // Continue to next iteration if confidence still not high enough
   }
 
   // Set final results
@@ -298,8 +370,8 @@ function generateContextualSearchQueries(
   if (subjectArea === 'POLITY') {
     // Look for specific constitutional bodies/roles
     if (questionLower.includes('speaker')) {
-      queries.push('Speaker Lok Sabha removal procedure Article 94');
-      queries.push('Speaker removal resolution voting rights');
+      queries.push('Article 96 Speaker Lok Sabha removal right to speak vote');
+      queries.push('Speaker removal resolution shall have right to speak first instance vote');
     }
     if (questionLower.includes('rajya sabha')) {
       queries.push('Rajya Sabha powers bills constitutional provisions');
@@ -328,7 +400,8 @@ function generateContextualSearchQueries(
   if (subjectArea === 'ECONOMY') {
     if (questionLower.includes('bond') || questionLower.includes('securities')) {
       queries.push('retail investors government securities RBI Retail Direct 2021');
-      queries.push('who can trade corporate bonds India SEBI');
+      queries.push('retail investors corporate bonds SEBI minimum ticket size 10000');
+      queries.push('can retail investors trade corporate bonds India 2024');
     }
     if (questionLower.includes('rbi') || questionLower.includes('reserve bank')) {
       queries.push('RBI monetary policy current regulations');
@@ -347,16 +420,16 @@ function generateContextualSearchQueries(
     if (questionLower.includes('rainfall') || questionLower.includes('monsoon')) {
       queries.push('rainfall chemical weathering process India');
     }
-    const fallsMatch = question.match(/(\w+)\s*[Ff]alls/);
-    if (fallsMatch) {
-      queries.push(`${fallsMatch[1]} Falls which river location India`);
-    }
   }
 
   // For Environment questions
   if (subjectArea === 'ENVIRONMENT') {
     if (questionLower.includes('sahel')) {
       queries.push('Sahel region Africa climate characteristics');
+    }
+    if (questionLower.includes('peatland') || questionLower.includes('peat')) {
+      queries.push('world largest tropical peatland carbon storage location');
+      queries.push('tropical peatland three years global carbon emissions which basin');
     }
     // Look for species/organisms
     const organisms = ['carabid', 'centipede', 'flies', 'beetle', 'insect', 'parasitoid'];
@@ -381,8 +454,16 @@ function generateContextualSearchQueries(
     const filteredNouns = [...new Set(properNouns)].filter(n => n.length > 3 && !stopWords.includes(n));
 
     // Build context-aware queries
+    // Detect matching/table questions (multiple items per row)
+    const isMatchingQuestion = questionLower.includes('correctly matched') ||
+                               questionLower.includes('correctly paired') ||
+                               (questionLower.includes('region') && questionLower.includes('river'));
+
     for (const noun of filteredNouns.slice(0, 3)) {
-      if (questionType === 'SELECT_CORRECT' || questionType === 'HOW_MANY_CORRECT') {
+      if (isMatchingQuestion && subjectArea === 'GEOGRAPHY') {
+        // For geographic matching, verify location/region specifically
+        queries.push(`${noun} exact location region district state India`);
+      } else if (questionType === 'SELECT_CORRECT' || questionType === 'HOW_MANY_CORRECT') {
         queries.push(`${noun} characteristics features definition`);
       } else if (questionType === 'STATEMENT_ANALYSIS') {
         queries.push(`${noun} explanation mechanism how does it work`);

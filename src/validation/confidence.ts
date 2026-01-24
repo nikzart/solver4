@@ -88,16 +88,21 @@ export function shouldSearch(
     return true;
   }
 
+  // Stop searching if confidence is already very high (95%+)
+  if (confidence >= 0.95) {
+    return false;
+  }
+
   // Question types that benefit most from search
   const highSearchBenefit = [QuestionType.FACTUAL_RECALL, QuestionType.MATCH_PAIRS, QuestionType.HOW_MANY_CORRECT, QuestionType.SEQUENCE_ORDER];
 
-  // Search for high-benefit question types if not very confident
-  if (highSearchBenefit.includes(questionType) && confidence < 0.98) {
+  // Search for high-benefit question types if not confident
+  if (highSearchBenefit.includes(questionType) && confidence < 0.90) {
     return true;
   }
 
-  // Search if confidence is below 90%
-  if (confidence < 0.90) {
+  // Search if confidence is below 85%
+  if (confidence < 0.85) {
     return true;
   }
 

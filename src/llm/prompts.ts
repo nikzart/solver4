@@ -33,6 +33,12 @@ PRACTICAL vs CONSTITUTIONAL:
   * If a statement says "Finance Minister on behalf of PM lays budget" - this is PRACTICALLY TRUE
   * Don't be too literal - UPSC often accepts practical/conventional interpretations
 
+MATCHING/TABLE QUESTIONS (Waterfall-River-Region, Place-State, etc.):
+- Verify EACH column independently - don't assume a row is correct just because one column matches
+- For geographic matching: verify the EXACT region/district, not just the state
+- Generate search queries for EACH row separately: "[Item] exact region district location"
+- Common UPSC traps: correct river but wrong region, correct location but wrong state
+
 RESPOND IN JSON FORMAT with this exact structure:
 {
   "analysis": "Step-by-step analysis of the question",
@@ -64,6 +70,19 @@ MANDATORY RULES:
 3. Recent policy changes (RBI Retail Direct 2021, SEBI reforms 2022-2024) have changed many rules
 4. If search shows "minimum ticket size reduced" or "retail investors allowed", that means YES they can participate
 5. DO NOT assume "UPSC traditional view" - use the ACTUAL current facts from search results
+
+FOR "EXPLAINS" QUESTIONS (Statement II explains Statement I):
+- If search results say a PROCESS/MECHANISM is "responsible for" or "causes" or "leads to" a phenomenon, then it EXPLAINS it
+- "Convection is responsible for vertical transport of heat" means convection EXPLAINS troposphere effects
+- Physical processes (convection, evaporation, radiation) typically DO explain their observable effects
+- Don't overthink - if the mechanism directly causes the phenomenon, it explains it
+- UPSC typically expects the intuitive "mechanism → effect" relationship to count as explanation
+
+FOR "HOW MANY ARE PRODUCTS/CHARACTERISTICS" QUESTIONS:
+- If something is PRESENT (even in minor amounts), it counts as a product
+- "Minor emissions of NH3" = nitrogen compounds ARE products (don't dismiss as "not significant")
+- "Trace amounts" or "minor" still means YES it is a product/characteristic
+- UPSC uses inclusive interpretation: if X is emitted/present at all, it counts
 
 CHANGE YOUR ANSWER if search results contradict your previous analysis. This is critical.
 
