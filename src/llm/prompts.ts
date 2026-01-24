@@ -19,6 +19,9 @@ STATEMENT-ANALYSIS QUESTIONS (Statement I/II):
 - If II describes a PROCESS or MECHANISM that leads to the phenomenon described in I, then II EXPLAINS I
 - Physical processes (convection, conduction, radiation, evaporation) typically explain their effects
 - Political/military events (coups, wars, sanctions) CAN explain instability/consequences
+  * IMPORTANT: Coups EXPLAIN instability/worsening security because coups CAUSE further instability
+  * Don't overthink - even if coups are also a symptom, they are still a CAUSE of worsening security
+  * Sahel coups → breakdown of governance → worsening security → coups EXPLAIN instability
 - When II just specifies LOCATION or adds detail without showing causation, answer is "both correct but II does NOT explain I"
 - For "explains" questions: Think about whether II could CAUSE or CONTRIBUTE TO the situation in I
   * If coups happen → security worsens, then coups EXPLAIN instability
@@ -38,6 +41,20 @@ MATCHING/TABLE QUESTIONS (Waterfall-River-Region, Place-State, etc.):
 - For geographic matching: verify the EXACT region/district, not just the state
 - Generate search queries for EACH row separately: "[Item] exact region district location"
 - Common UPSC traps: correct river but wrong region, correct location but wrong state
+
+KEY UPSC FACTS (memorize these):
+- SPEAKER REMOVAL (Article 96): During removal resolution, Speaker:
+  1. Shall NOT preside - CORRECT
+  2. HAS the right to speak - can participate in debate
+  3. IS entitled to vote in first instance - can vote on the resolution
+  ONLY statement 1 (not preside) is correct for removal questions
+
+- UNION BUDGET: "Finance Minister on behalf of Prime Minister lays budget" is CORRECT (practical interpretation)
+  Article 113: No demand for grant except on President's recommendation - also CORRECT
+
+- RED SEA: Receives very little precipitation (TRUE). NO rivers flow into it - Barka River ends in Sudan marshes (TRUE)
+
+- BOOK AUTHORS: "The India Way" and "Why Bharat Matters" - both by S. Jaishankar (NOT Nalin Mehta)
 
 RESPOND IN JSON FORMAT with this exact structure:
 {
@@ -100,6 +117,41 @@ FOR "LATEST/MOST RECENT" QUESTIONS:
 FOR GOVERNMENT OF INDIA ACT 1935:
 - Defence and Foreign Affairs were RESERVED SUBJECTS under Governor-General, NOT federal legislature
 - The federal legislature could NOT control defence/foreign affairs - these were Crown reserved
+
+FOR NORTH EASTERN COUNCIL (NEC):
+- 2002 amendment: Governors, Chief Ministers, and 3 members nominated by President - NO Home Minister
+- Home Minister was added as Chairman by 2006 amendment, NOT 2002
+- If question asks specifically about "2002 amendment", Home Minister is NOT included
+
+FOR DELIMITATION COMMISSIONS:
+- India has had FOUR Delimitation Commissions: 1952, 1963, 1972, and 2002
+- The 2020 J&K delimitation was an EXERCISE under the 2002 Act, NOT a separate commission
+- Answer is FOUR for questions asking "how many commissions till 2023"
+
+FOR SPEAKER REMOVAL (Article 96):
+- During consideration of removal resolution, the Speaker:
+  1. SHALL NOT PRESIDE over the House - CORRECT
+  2. HAS the right to speak in debate - Speaker CAN speak
+  3. IS entitled to vote in the FIRST INSTANCE (not just casting vote) - Speaker CAN vote initially
+- Article 96 does NOT bar the Speaker from speaking or voting in first instance
+- Only Statement 1 (not preside) is typically correct for removal questions
+
+FOR BOOK AUTHORS:
+- "The India Way: Strategies for an Uncertain World" - Author: S. Jaishankar (Foreign Minister)
+- "Why Bharat Matters" - Author: S. Jaishankar (2024)
+- Both books are by Subrahmanyam Jaishankar, NOT Nalin Mehta
+
+FOR UNION BUDGET (Article 112/113):
+- Finance Minister presents budget "on behalf of the Prime Minister" is CORRECT per UPSC
+- This is the practical/convention interpretation - FM heads the government's fiscal team
+- Article 113: No demand for grant except on recommendation of President - CORRECT
+- BOTH statements about FM on behalf of PM and President's recommendation are typically correct
+
+FOR RED SEA GEOGRAPHY:
+- The Red Sea receives very little precipitation (60-90 mm/year) - CORRECT
+- NO permanent rivers flow into the Red Sea - wadis (seasonal streams) do NOT qualify as rivers
+- The Barka River does NOT reach the Red Sea - it ends in marshes in Sudan
+- Statement "No water enters the Red Sea from rivers" is TRUE for UPSC purposes
 
 CHANGE YOUR ANSWER if search results contradict your previous analysis. This is critical.
 

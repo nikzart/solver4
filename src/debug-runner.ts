@@ -159,9 +159,22 @@ async function runQuestion(question: { id: number; question: string; options: Re
       jsonSchema: responseSchema,
     });
 
-    // Log if response is empty (debugging)
+    // Log if response is empty (debugging) and retry once if we have search context
     if (!response.content && !response.reasoning) {
       console.log(`[WARNING] Empty LLM response in iteration ${iteration}`);
+
+      // If we have accumulated search context, retry the LLM call once
+      if (accumulatedContext.length > 100) {
+        console.log(`[RETRY] Retrying with search context...`);
+        const retryResponse = await provider.generate(messages, {
+          maxTokens: 8000,
+          jsonSchema: responseSchema,
+        });
+        if (retryResponse.content || retryResponse.reasoning) {
+          Object.assign(response, retryResponse);
+          console.log(`[RETRY SUCCESS] Got response on retry`);
+        }
+      }
     }
 
     iterLog.reasoning = response.reasoning || '';
@@ -217,7 +230,8 @@ async function runQuestion(question: { id: number; question: string; options: Re
        questionLower.includes('fii') || questionLower.includes('fpi'));
     const isPolityAct = classified.subjectArea === 'POLITY' &&
       (questionLower.includes('act') || questionLower.includes('constitution') ||
-       questionLower.includes('article') || questionLower.includes('amendment'));
+       questionLower.includes('article') || questionLower.includes('amendment') ||
+       questionLower.includes('speaker') || questionLower.includes('removal'));
     const mustSearchFirst = iteration === 1 && searchCount === 0 &&
       (classified.type === 'STATEMENT_ANALYSIS' ||
        classified.type === 'HOW_MANY_CORRECT' ||
