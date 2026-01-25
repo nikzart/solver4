@@ -16,7 +16,7 @@ import { parseConfidenceFromResponse, shouldSearch } from './validation/confiden
 import { Semaphore } from './utils/semaphore';
 
 // Concurrency settings for parallel processing
-const CONCURRENCY = parseInt(process.env.CONCURRENCY || '10');
+const CONCURRENCY = parseInt(process.env.CONCURRENCY || '20');
 const ENABLE_SCRAPING = process.env.ENABLE_SCRAPING === 'true';
 
 // Use answers.json as source of truth - no overrides needed
