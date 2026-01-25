@@ -10,9 +10,14 @@
 import { getProvider, type LLMMessage } from './llm/provider';
 import { SYSTEM_PROMPTS, buildInitialPrompt, buildRefinedPrompt } from './llm/prompts';
 import { classifyQuestion, SubjectArea } from './agent/classifier';
-import { webSearch } from './tools';
+import { webSearch, searchMultiple } from './tools';
 import { scrapeMultiple, extractRelevantContent } from './tools/scraper';
 import { parseConfidenceFromResponse, shouldSearch } from './validation/confidence';
+import { Semaphore } from './utils/semaphore';
+
+// Concurrency settings for parallel processing
+const CONCURRENCY = parseInt(process.env.CONCURRENCY || '10');
+const ENABLE_SCRAPING = process.env.ENABLE_SCRAPING === 'true';
 
 // Use answers.json as source of truth - no overrides needed
 const CORRECTED_ANSWERS: Record<number, string> = {};
@@ -232,6 +237,12 @@ async function runQuestion(question: { id: number; question: string; options: Re
       (questionLower.includes('act') || questionLower.includes('constitution') ||
        questionLower.includes('article') || questionLower.includes('amendment') ||
        questionLower.includes('speaker') || questionLower.includes('removal'));
+    // Force search for question types that frequently have confident wrong answers
+    const isGeographicMatching = classified.subjectArea === 'GEOGRAPHY' &&
+      (questionLower.includes('correctly matched') || questionLower.includes('correctly paired') ||
+       (questionLower.includes('waterfall') && questionLower.includes('river')) ||
+       (questionLower.includes('region') && questionLower.includes('river')));
+    // Restore aggressive search-first for most question types (accuracy > speed tradeoff)
     const mustSearchFirst = iteration === 1 && searchCount === 0 &&
       (classified.type === 'STATEMENT_ANALYSIS' ||
        classified.type === 'HOW_MANY_CORRECT' ||
@@ -239,6 +250,7 @@ async function runQuestion(question: { id: number; question: string; options: Re
        classified.type === 'MATCH_PAIRS' ||
        classified.type === 'FACTUAL_RECALL' ||
        isDescriptionQuestion ||
+       isGeographicMatching ||
        isEconomyRegulation ||
        isPolityAct);
 
@@ -277,7 +289,7 @@ async function runQuestion(question: { id: number; question: string; options: Re
 
     if (shouldTriggerSearch) {
       iterLog.searchTriggered = true;
-      console.log(`\n[SEARCH TRIGGERED]`);
+      console.log(`\n[SEARCH TRIGGERED - ${searchTerms.length} queries in parallel]`);
 
       iterLog.searchQueries = searchTerms;
       iterLog.searchResults = [];
@@ -285,11 +297,11 @@ async function runQuestion(question: { id: number; question: string; options: Re
       // Collect all URLs from search results
       const allUrls: string[] = [];
 
-      for (const query of searchTerms) {
-        console.log(`Searching: "${query.slice(0, 60)}..."`);
-        const searchResult = await webSearch(query);
-        searchCount++;
+      // Use parallel search for all queries
+      const searchResultsMap = await searchMultiple(searchTerms.slice(0, 4));
+      searchCount += searchTerms.length;
 
+      for (const [query, searchResult] of searchResultsMap.entries()) {
         if (searchResult.results.length > 0) {
           iterLog.searchResults!.push(...searchResult.results.slice(0, 3).map(r => ({
             title: r.title,
@@ -297,8 +309,10 @@ async function runQuestion(question: { id: number; question: string; options: Re
             snippet: r.snippet,
           })));
 
-          // Collect URLs for scraping
-          allUrls.push(...searchResult.results.slice(0, 2).map(r => r.url));
+          // Collect URLs for scraping (only if enabled)
+          if (ENABLE_SCRAPING) {
+            allUrls.push(...searchResult.results.slice(0, 2).map(r => r.url));
+          }
 
           // Format snippets for context
           const formatted = searchResult.results.slice(0, 3).map(r =>
@@ -308,24 +322,26 @@ async function runQuestion(question: { id: number; question: string; options: Re
         }
       }
 
-      // Scrape top URLs with Firecrawl for full content
-      const uniqueUrls = [...new Set(allUrls)].slice(0, 3);
-      if (uniqueUrls.length > 0) {
-        console.log(`Scraping ${uniqueUrls.length} pages with Firecrawl...`);
-        const scrapedResults = await scrapeMultiple(uniqueUrls);
-        const successful = scrapedResults.filter(r => r.success);
+      // Scrape top URLs with Firecrawl for full content (only if enabled)
+      if (ENABLE_SCRAPING) {
+        const uniqueUrls = [...new Set(allUrls)].slice(0, 3);
+        if (uniqueUrls.length > 0) {
+          console.log(`Scraping ${uniqueUrls.length} pages with Firecrawl...`);
+          const scrapedResults = await scrapeMultiple(uniqueUrls);
+          const successful = scrapedResults.filter(r => r.success);
 
-        if (successful.length > 0) {
-          // Extract keywords from question for relevance filtering
-          const keywords = classified.keyTerms.filter(k => k.length > 3);
+          if (successful.length > 0) {
+            // Extract keywords from question for relevance filtering
+            const keywords = classified.keyTerms.filter(k => k.length > 3);
 
-          for (const scraped of successful) {
-            const relevant = extractRelevantContent(scraped.markdown, keywords);
-            if (relevant.length > 100) {
-              accumulatedContext += `\n\n--- Full Content from ${scraped.title} ---\n${relevant}`;
+            for (const scraped of successful) {
+              const relevant = extractRelevantContent(scraped.markdown, keywords);
+              if (relevant.length > 100) {
+                accumulatedContext += `\n\n--- Full Content from ${scraped.title} ---\n${relevant}`;
+              }
             }
+            console.log(`Scraped ${successful.length} pages successfully`);
           }
-          console.log(`Scraped ${successful.length} pages successfully`);
         }
       }
 
@@ -621,25 +637,32 @@ async function main() {
   console.log(`  Questions: ${questionIds.join(', ')}`);
   console.log(`${'═'.repeat(70)}`);
 
-  const logs: QuestionLog[] = [];
   let correct = 0;
   let actuallyCorrect = 0;
 
-  for (const qId of questionIds) {
-    const question = questionsData.find((q: any) => q.id === qId);
-    if (!question) {
-      console.error(`Question ${qId} not found`);
-      continue;
+  // Parallel processing with semaphore-based concurrency control
+  const semaphore = new Semaphore(CONCURRENCY);
+  console.log(`Running ${questionIds.length} questions with concurrency=${CONCURRENCY}`);
+
+  const questions = questionIds.map(qId => questionsData.find((q: any) => q.id === qId)).filter(Boolean);
+
+  const promises = questions.map(async (question: any) => {
+    await semaphore.acquire();
+    try {
+      const log = await runQuestion(question, answersData);
+      // Save individual log
+      await Bun.write(`./logs/q${question.id}.json`, JSON.stringify(log, null, 2));
+      return log;
+    } finally {
+      semaphore.release();
     }
+  });
 
-    const log = await runQuestion(question, answersData);
-    logs.push(log);
+  const logs = await Promise.all(promises);
 
+  for (const log of logs) {
     if (log.correct) correct++;
     if (log.actuallyCorrect) actuallyCorrect++;
-
-    // Save individual log
-    await Bun.write(`./logs/q${qId}.json`, JSON.stringify(log, null, 2));
   }
 
   // Summary
