@@ -2,9 +2,10 @@
  * Debug Test Runner - Batch processing with comprehensive logging
  *
  * Usage:
- *   bun run src/debug-runner.ts --batch=1     # Run batch 1 (Q1-10)
- *   bun run src/debug-runner.ts --batch=2     # Run batch 2 (Q11-21)
- *   bun run src/debug-runner.ts --question=5  # Run single question
+ *   bun run src/debug-runner.ts --batch=1       # Run batch 1 (Q1-10)
+ *   bun run src/debug-runner.ts --batch=2       # Run batch 2 (Q11-21)
+ *   bun run src/debug-runner.ts --question=5    # Run single question
+ *   bun run src/debug-runner.ts --solve --batch=1  # Solve mode (no answer key needed)
  */
 
 import { getProvider, type LLMMessage } from './llm/provider';
@@ -17,7 +18,7 @@ import { Semaphore } from './utils/semaphore';
 
 // Concurrency settings for parallel processing
 const CONCURRENCY = parseInt(process.env.CONCURRENCY || '20');
-const ENABLE_SCRAPING = process.env.ENABLE_SCRAPING === 'true';
+const ENABLE_SCRAPING = process.env.ENABLE_SCRAPING !== 'false'; // Default: true
 
 // Use answers.json as source of truth - no overrides needed
 const CORRECTED_ANSWERS: Record<number, string> = {};
@@ -72,7 +73,7 @@ interface QuestionLog {
   totalTime: number;
 }
 
-async function runQuestion(question: { id: number; question: string; options: Record<string, string> }, answers: Record<string, string>): Promise<QuestionLog> {
+async function runQuestion(question: { id: number; question: string; options: Record<string, string> }, answers: Record<string, string>, solveMode: boolean = false): Promise<QuestionLog> {
   const startTime = Date.now();
   const log: QuestionLog = {
     questionId: question.id,
@@ -381,12 +382,36 @@ async function runQuestion(question: { id: number; question: string; options: Re
   }
 
   // Print result
-  const status = log.actuallyCorrect ? '✓' : '✗';
-  const keyNote = correctedKey ? ` (key error, correct=${correctedKey.toUpperCase()})` : '';
   console.log(`\n${'─'.repeat(70)}`);
-  console.log(`RESULT: ${log.finalAnswer.toUpperCase()} ${status} (expected: ${log.expectedAnswer.toUpperCase()}${keyNote})`);
-  console.log(`Confidence: ${(log.finalConfidence * 100).toFixed(0)}%, Iterations: ${log.iterations.length}, Searches: ${searchCount}`);
-  console.log(`Time: ${(log.totalTime / 1000).toFixed(1)}s`);
+
+  if (solveMode) {
+    // Solve mode: Show detailed explanation without pass/fail
+    console.log(`ANSWER: ${log.finalAnswer.toUpperCase()} (Confidence: ${(log.finalConfidence * 100).toFixed(0)}%)`);
+    console.log(`\nEXPLANATION:`);
+    // Get the final analysis from the last iteration
+    const lastIter = log.iterations[log.iterations.length - 1];
+    if (lastIter?.parsedAnalysis) {
+      console.log(lastIter.parsedAnalysis);
+    }
+    // Show sources if any searches were done
+    if (log.totalSearches > 0) {
+      console.log(`\nSources consulted:`);
+      const allSources = log.iterations
+        .flatMap(iter => iter.searchResults || [])
+        .slice(0, 5);
+      for (const source of allSources) {
+        console.log(`  - [${source.title.slice(0, 50)}] ${source.snippet.slice(0, 80)}...`);
+      }
+    }
+    console.log(`\nTime: ${(log.totalTime / 1000).toFixed(1)}s | Iterations: ${log.iterations.length} | Searches: ${searchCount}`);
+  } else {
+    // Test mode: Show pass/fail status
+    const status = log.actuallyCorrect ? '✓' : '✗';
+    const keyNote = correctedKey ? ` (key error, correct=${correctedKey.toUpperCase()})` : '';
+    console.log(`RESULT: ${log.finalAnswer.toUpperCase()} ${status} (expected: ${log.expectedAnswer.toUpperCase()}${keyNote})`);
+    console.log(`Confidence: ${(log.finalConfidence * 100).toFixed(0)}%, Iterations: ${log.iterations.length}, Searches: ${searchCount}`);
+    console.log(`Time: ${(log.totalTime / 1000).toFixed(1)}s`);
+  }
 
   return log;
 }
@@ -609,12 +634,18 @@ async function main() {
   const args = process.argv.slice(2);
   const batchArg = args.find(a => a.startsWith('--batch='));
   const questionArg = args.find(a => a.startsWith('--question='));
+  const solveMode = args.includes('--solve');
 
   // Load data
   const questionsFile = Bun.file('./questions.json');
   const questionsData = await questionsFile.json();
-  const answersFile = Bun.file('./answers.json');
-  const answersData = await answersFile.json();
+
+  // Load answers (optional in solve mode)
+  let answersData: Record<string, string> = {};
+  if (!solveMode) {
+    const answersFile = Bun.file('./answers.json');
+    answersData = await answersFile.json();
+  }
 
   let questionIds: number[];
 
@@ -633,7 +664,11 @@ async function main() {
   }
 
   console.log(`\n${'═'.repeat(70)}`);
-  console.log(`  DEBUG RUNNER - Testing ${questionIds.length} questions`);
+  if (solveMode) {
+    console.log(`  SOLVE MODE - Solving ${questionIds.length} questions`);
+  } else {
+    console.log(`  DEBUG RUNNER - Testing ${questionIds.length} questions`);
+  }
   console.log(`  Questions: ${questionIds.join(', ')}`);
   console.log(`${'═'.repeat(70)}`);
 
@@ -649,7 +684,7 @@ async function main() {
   const promises = questions.map(async (question: any) => {
     await semaphore.acquire();
     try {
-      const log = await runQuestion(question, answersData);
+      const log = await runQuestion(question, answersData, solveMode);
       // Save individual log
       await Bun.write(`./logs/q${question.id}.json`, JSON.stringify(log, null, 2));
       return log;
@@ -667,50 +702,98 @@ async function main() {
 
   // Summary
   console.log(`\n${'═'.repeat(70)}`);
-  console.log(`  BATCH SUMMARY`);
-  console.log(`${'═'.repeat(70)}`);
-  console.log(`Per original key: ${correct}/${logs.length} = ${((correct/logs.length)*100).toFixed(0)}%`);
-  console.log(`With corrections:  ${actuallyCorrect}/${logs.length} = ${((actuallyCorrect/logs.length)*100).toFixed(0)}%`);
-  console.log(`\nResults:`);
-
-  for (const log of logs) {
-    const status = log.actuallyCorrect ? '✓' : '✗';
-    const keyNote = log.correctedAnswer ? ` (key error)` : '';
-    console.log(`  Q${log.questionId}: ${log.finalAnswer.toUpperCase()} ${status} (expected: ${log.expectedAnswer.toUpperCase()}${keyNote})`);
+  if (solveMode) {
+    console.log(`  SOLVED ANSWERS`);
+  } else {
+    console.log(`  BATCH SUMMARY`);
   }
+  console.log(`${'═'.repeat(70)}`);
 
-  // Save batch summary
-  const batchNum = batchArg ? parseInt(batchArg.split('=')[1]) : 1;
-  await Bun.write(`./logs/batch-${batchNum}-summary.json`, JSON.stringify({
-    batch: batchNum,
-    questions: questionIds,
-    correctPerKey: correct,
-    correctWithCorrections: actuallyCorrect,
-    total: logs.length,
-    accuracyPerKey: (correct / logs.length * 100).toFixed(1) + '%',
-    accuracyWithCorrections: (actuallyCorrect / logs.length * 100).toFixed(1) + '%',
-    results: logs.map(l => ({
-      questionId: l.questionId,
-      answer: l.finalAnswer,
-      expected: l.expectedAnswer,
-      correct: l.correct,
-      actuallyCorrect: l.actuallyCorrect,
-      confidence: l.finalConfidence,
-      iterations: l.iterations.length,
-      searches: l.totalSearches,
-    })),
-  }, null, 2));
+  if (solveMode) {
+    // Solve mode: Show answers and confidence
+    console.log(`\nResults:`);
+    for (const log of logs) {
+      const conf = (log.finalConfidence * 100).toFixed(0);
+      console.log(`  Q${log.questionId}: ${log.finalAnswer.toUpperCase()} (${conf}% confidence)`);
+    }
+
+    // Export solved answers to file
+    const solvedAnswers: Record<string, string> = {};
+    for (const log of logs) {
+      solvedAnswers[log.questionId.toString()] = log.finalAnswer;
+    }
+    await Bun.write('./solved-answers.json', JSON.stringify(solvedAnswers, null, 2));
+    console.log(`\nSolved answers saved to ./solved-answers.json`);
+
+    // Also save detailed results
+    await Bun.write('./solved-details.json', JSON.stringify({
+      solvedAt: new Date().toISOString(),
+      totalQuestions: logs.length,
+      results: logs.map(l => ({
+        questionId: l.questionId,
+        question: l.question,
+        options: l.options,
+        answer: l.finalAnswer,
+        confidence: l.finalConfidence,
+        explanation: l.iterations[l.iterations.length - 1]?.parsedAnalysis || '',
+        sources: l.iterations.flatMap(iter => iter.searchResults || []).slice(0, 5),
+        iterations: l.iterations.length,
+        searches: l.totalSearches,
+        time: l.totalTime,
+      })),
+    }, null, 2));
+    console.log(`Detailed explanations saved to ./solved-details.json`);
+  } else {
+    // Test mode: Show accuracy stats
+    console.log(`Per original key: ${correct}/${logs.length} = ${((correct/logs.length)*100).toFixed(0)}%`);
+    console.log(`With corrections:  ${actuallyCorrect}/${logs.length} = ${((actuallyCorrect/logs.length)*100).toFixed(0)}%`);
+    console.log(`\nResults:`);
+
+    for (const log of logs) {
+      const status = log.actuallyCorrect ? '✓' : '✗';
+      const keyNote = log.correctedAnswer ? ` (key error)` : '';
+      console.log(`  Q${log.questionId}: ${log.finalAnswer.toUpperCase()} ${status} (expected: ${log.expectedAnswer.toUpperCase()}${keyNote})`);
+    }
+
+    // Save batch summary
+    const batchNum = batchArg ? parseInt(batchArg.split('=')[1]) : 1;
+    await Bun.write(`./logs/batch-${batchNum}-summary.json`, JSON.stringify({
+      batch: batchNum,
+      questions: questionIds,
+      correctPerKey: correct,
+      correctWithCorrections: actuallyCorrect,
+      total: logs.length,
+      accuracyPerKey: (correct / logs.length * 100).toFixed(1) + '%',
+      accuracyWithCorrections: (actuallyCorrect / logs.length * 100).toFixed(1) + '%',
+      results: logs.map(l => ({
+        questionId: l.questionId,
+        answer: l.finalAnswer,
+        expected: l.expectedAnswer,
+        correct: l.correct,
+        actuallyCorrect: l.actuallyCorrect,
+        confidence: l.finalConfidence,
+        iterations: l.iterations.length,
+        searches: l.totalSearches,
+      })),
+    }, null, 2));
+  }
 
   console.log(`\nLogs saved to ./logs/`);
 
-  // Return success only if 100% with corrections
-  if (actuallyCorrect < logs.length) {
-    console.log(`\n⚠️  BATCH NOT COMPLETE - ${logs.length - actuallyCorrect} question(s) wrong`);
-    console.log(`Analyze failures in ./logs/qXX.json and fix before proceeding.`);
-    process.exit(1);
-  } else {
-    console.log(`\n✓ BATCH COMPLETE - All ${logs.length} questions correct!`);
+  // Exit handling
+  if (solveMode) {
+    console.log(`\n✓ SOLVE COMPLETE - ${logs.length} questions solved!`);
     process.exit(0);
+  } else {
+    // Return success only if 100% with corrections
+    if (actuallyCorrect < logs.length) {
+      console.log(`\n⚠️  BATCH NOT COMPLETE - ${logs.length - actuallyCorrect} question(s) wrong`);
+      console.log(`Analyze failures in ./logs/qXX.json and fix before proceeding.`);
+      process.exit(1);
+    } else {
+      console.log(`\n✓ BATCH COMPLETE - All ${logs.length} questions correct!`);
+      process.exit(0);
+    }
   }
 }
 

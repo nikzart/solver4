@@ -18,8 +18,8 @@ An intelligent agent for solving UPSC-style MCQ questions using LLM reasoning an
 
 | Mode | Time (97 questions) | Accuracy | Use Case |
 |------|---------------------|----------|----------|
-| Fast | ~3 minutes | ~92% | Quick testing |
-| Accurate | ~5 minutes | ~96% | Production |
+| Default (scraping) | ~5 minutes | ~96% | Production |
+| Fast (no scraping) | ~3 minutes | ~92% | Quick testing |
 | Original (sequential) | ~40 minutes | ~95% | Baseline |
 
 **Optimization: 8-10x speedup** with parallel question processing.
@@ -75,6 +75,25 @@ time (for batch in 1 2 3 4 5 6 7 8 9 10; do
 done)
 ```
 
+### Solve Mode (no answer key needed)
+Solve questions and get detailed explanations without requiring an answer key:
+
+```bash
+# Solve a single question
+bun run src/debug-runner.ts --solve --question=5
+
+# Solve a batch of questions
+bun run src/debug-runner.ts --solve --batch=1
+
+# Solve with high accuracy (recommended)
+ENABLE_SCRAPING=true bun run src/debug-runner.ts --solve --batch=1
+```
+
+**Solve mode outputs:**
+- `solved-answers.json` - Simple answer key (e.g., `{"1": "d", "2": "a"}`)
+- `solved-details.json` - Detailed explanations with sources
+- `logs/qX.json` - Individual question logs
+
 ## Configuration
 
 ### Environment Variables
@@ -82,16 +101,16 @@ done)
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CONCURRENCY` | `20` | Number of questions to process in parallel |
-| `ENABLE_SCRAPING` | `false` | Enable Firecrawl web scraping for better accuracy |
+| `ENABLE_SCRAPING` | `true` | Enable Firecrawl web scraping for better accuracy |
 
 ### Performance Tuning
 
 ```bash
-# Fast mode (default) - ~3 min, ~92% accuracy
+# Default mode (scraping enabled) - ~5 min, ~96% accuracy
 bun run src/debug-runner.ts --batch=1
 
-# Accurate mode - ~5 min, ~96% accuracy
-ENABLE_SCRAPING=true bun run src/debug-runner.ts --batch=1
+# Fast mode (no scraping) - ~3 min, ~92% accuracy
+ENABLE_SCRAPING=false bun run src/debug-runner.ts --batch=1
 
 # Custom concurrency (if hitting rate limits)
 CONCURRENCY=10 bun run src/debug-runner.ts --batch=1
