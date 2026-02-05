@@ -88,8 +88,13 @@ export function shouldSearch(
     return true;
   }
 
-  // Stop searching if confidence is already very high (95%+)
-  if (confidence >= 0.95) {
+  // ALWAYS search for SELECT_CORRECT questions (first iteration) - often need verification
+  if (iteration === 1 && questionType === QuestionType.SELECT_CORRECT) {
+    return true;
+  }
+
+  // Stop searching if confidence is already very high (93%+)
+  if (confidence >= 0.93) {
     return false;
   }
 

@@ -61,6 +61,12 @@ INSTRUCTIONS:
 5. Focus on Indian context (constitutional provisions, government schemes, geography, etc.)
 6. Be concise but comprehensive - include the key facts needed to answer correctly
 
+IMPORTANT for "explains" or "reason" type questions:
+- Consider BOTH direct causal factors AND contributing/enabling factors
+- Words like "attractive" can mean effective, sustainable, available, OR economical
+- Interpret what "explains" or "reason for" broadly, not narrowly
+- A statement can explain another through different aspects (e.g., effectiveness AND availability)
+
 Provide your research findings:`;
 
   const response = await fetch(API_ENDPOINT, {

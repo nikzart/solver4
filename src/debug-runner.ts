@@ -266,13 +266,14 @@ async function runQuestion(question: { id: number; question: string; options: Re
        classified.type === 'SEQUENCE_ORDER' ||
        classified.type === 'MATCH_PAIRS' ||
        classified.type === 'FACTUAL_RECALL' ||
+       classified.type === 'SELECT_CORRECT' ||
        isDescriptionQuestion ||
        isGeographicMatching ||
        isEconomyRegulation ||
        isPolityAct);
 
     // If confidence is high enough AND we've done mandatory searches, stop iterating
-    if (currentConfidence >= 0.95 && !mustSearchFirst) {
+    if (currentConfidence >= 0.93 && !mustSearchFirst) {
       log.iterations.push(iterLog);
       console.log(`[HIGH CONFIDENCE - stopping iterations]`);
       break;
