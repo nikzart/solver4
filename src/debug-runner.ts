@@ -6,25 +6,27 @@
  *   bun run src/debug-runner.ts --batch=2       # Run batch 2 (Q11-21)
  *   bun run src/debug-runner.ts --question=5    # Run single question
  *   bun run src/debug-runner.ts --solve --batch=1  # Solve mode (no answer key needed)
+ *   bun run src/debug-runner.ts --questions=2025questions.json --answers=2025answers.json --batch=1
  */
 
 import { getProvider, type LLMMessage } from './llm/provider';
 import { SYSTEM_PROMPTS, buildInitialPrompt, buildRefinedPrompt } from './llm/prompts';
 import { classifyQuestion, SubjectArea } from './agent/classifier';
-import { webSearch, searchMultiple } from './tools';
+import { geminiContextSearch, isGeminiConfigured, webSearch, searchMultiple } from './tools';
 import { scrapeMultiple, extractRelevantContent } from './tools/scraper';
 import { parseConfidenceFromResponse, shouldSearch } from './validation/confidence';
 import { Semaphore } from './utils/semaphore';
 
 // Concurrency settings for parallel processing
 const CONCURRENCY = parseInt(process.env.CONCURRENCY || '20');
-const ENABLE_SCRAPING = process.env.ENABLE_SCRAPING !== 'false'; // Default: true
+// Skip Firecrawl scraping when using Gemini (it already processes content)
+const ENABLE_SCRAPING = !isGeminiConfigured() && process.env.ENABLE_SCRAPING !== 'false';
 
 // Use answers.json as source of truth - no overrides needed
 const CORRECTED_ANSWERS: Record<number, string> = {};
 
-// Batch definitions
-const BATCHES: Record<number, number[]> = {
+// Default batch definitions (original question set - skip dropped questions)
+const DEFAULT_BATCHES: Record<number, number[]> = {
   1: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
   2: [11, 12, 13, 14, 15, 16, 17, 18, 19, 21],  // Skip 20 (dropped)
   3: [22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
@@ -35,6 +37,20 @@ const BATCHES: Record<number, number[]> = {
   8: [74, 75, 76, 77, 78, 79, 80, 81, 82, 83],
   9: [84, 85, 86, 87, 88, 89, 90, 91, 92, 93],
   10: [94, 95, 96, 97, 98, 99, 100],
+};
+
+// Full batch definitions for custom question sets (no skipped questions)
+const FULL_BATCHES: Record<number, number[]> = {
+  1: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  2: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+  3: [21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
+  4: [31, 32, 33, 34, 35, 36, 37, 38, 39, 40],
+  5: [41, 42, 43, 44, 45, 46, 47, 48, 49, 50],
+  6: [51, 52, 53, 54, 55, 56, 57, 58, 59, 60],
+  7: [61, 62, 63, 64, 65, 66, 67, 68, 69, 70],
+  8: [71, 72, 73, 74, 75, 76, 77, 78, 79, 80],
+  9: [81, 82, 83, 84, 85, 86, 87, 88, 89, 90],
+  10: [91, 92, 93, 94, 95, 96, 97, 98, 99, 100],
 };
 
 interface IterationLog {
@@ -290,51 +306,75 @@ async function runQuestion(question: { id: number; question: string; options: Re
 
     if (shouldTriggerSearch) {
       iterLog.searchTriggered = true;
-      console.log(`\n[SEARCH TRIGGERED - ${searchTerms.length} queries in parallel]`);
 
-      iterLog.searchQueries = searchTerms;
-      iterLog.searchResults = [];
+      // PRIMARY: Use Gemini with full question context (simplified flow)
+      if (isGeminiConfigured()) {
+        console.log(`\n[GEMINI CONTEXT SEARCH]`);
+        iterLog.searchQueries = ['[Gemini grounded search with question context]'];
+        iterLog.searchResults = [];
 
-      // Collect all URLs from search results
-      const allUrls: string[] = [];
+        try {
+          const searchResult = await geminiContextSearch(classified.question, classified.options);
+          searchCount += 1;
 
-      // Use parallel search for all queries
-      const searchResultsMap = await searchMultiple(searchTerms.slice(0, 4));
-      searchCount += searchTerms.length;
-
-      for (const [query, searchResult] of searchResultsMap.entries()) {
-        if (searchResult.results.length > 0) {
-          iterLog.searchResults!.push(...searchResult.results.slice(0, 3).map(r => ({
-            title: r.title,
-            url: r.url,
-            snippet: r.snippet,
-          })));
-
-          // Collect URLs for scraping (only if enabled)
-          if (ENABLE_SCRAPING) {
-            allUrls.push(...searchResult.results.slice(0, 2).map(r => r.url));
+          // Log sources for attribution
+          if (searchResult.sources.length > 0) {
+            iterLog.searchResults = searchResult.sources.map(s => ({
+              title: s,
+              url: '',
+              snippet: '[AI explanation used]'
+            }));
           }
 
-          // Format snippets for context
-          const formatted = searchResult.results.slice(0, 3).map(r =>
-            `[${r.title}] ${r.snippet}`
-          ).join('\n\n');
-          accumulatedContext += '\n\nSearch Results for "' + query + '":\n' + formatted;
+          // Use Gemini's comprehensive explanation as context
+          if (searchResult.explanation) {
+            accumulatedContext += '\n\n=== VERIFIED RESEARCH ===\n' + searchResult.explanation;
+            console.log(`Gemini explanation: ${searchResult.explanation.length} chars`);
+          }
+        } catch (error) {
+          console.error('Gemini search failed:', error);
+          // Fall through to legacy search
         }
-      }
+      } else {
+        // FALLBACK: Legacy Serper-based search
+        console.log(`\n[SERPER SEARCH - ${searchTerms.length} queries]`);
+        iterLog.searchQueries = searchTerms;
+        iterLog.searchResults = [];
 
-      // Scrape top URLs with Firecrawl for full content (only if enabled)
-      if (ENABLE_SCRAPING) {
-        const uniqueUrls = [...new Set(allUrls)].slice(0, 3);
-        if (uniqueUrls.length > 0) {
+        const allUrls: string[] = [];
+        const searchResultsMap = await searchMultiple(searchTerms.slice(0, 4));
+        searchCount += searchTerms.length;
+
+        for (const [query, searchResult] of searchResultsMap.entries()) {
+          if (searchResult.results.length > 0) {
+            iterLog.searchResults!.push(...searchResult.results.slice(0, 3).map(r => ({
+              title: r.title,
+              url: r.url,
+              snippet: r.snippet,
+            })));
+
+            // Collect URLs for scraping
+            if (ENABLE_SCRAPING) {
+              allUrls.push(...searchResult.results.slice(0, 2).map(r => r.url));
+            }
+
+            // Format snippets for context
+            const formatted = searchResult.results.slice(0, 3).map(r =>
+              `[${r.title}] ${r.snippet}`
+            ).join('\n\n');
+            accumulatedContext += '\n\nSearch Results for "' + query + '":\n' + formatted;
+          }
+        }
+
+        // Scrape top URLs with Firecrawl for full content (only if enabled)
+        if (ENABLE_SCRAPING && allUrls.length > 0) {
+          const uniqueUrls = [...new Set(allUrls)].slice(0, 3);
           console.log(`Scraping ${uniqueUrls.length} pages with Firecrawl...`);
           const scrapedResults = await scrapeMultiple(uniqueUrls);
           const successful = scrapedResults.filter(r => r.success);
 
           if (successful.length > 0) {
-            // Extract keywords from question for relevance filtering
             const keywords = classified.keyTerms.filter(k => k.length > 3);
-
             for (const scraped of successful) {
               const relevant = extractRelevantContent(scraped.markdown, keywords);
               if (relevant.length > 100) {
@@ -346,9 +386,9 @@ async function runQuestion(question: { id: number; question: string; options: Re
         }
       }
 
-      console.log(`Search Results: ${iterLog.searchResults?.length || 0} results`);
+      console.log(`Search Results: ${iterLog.searchResults?.length || 0} sources`);
 
-      // Limit accumulated context to prevent token overflow (max ~15000 chars)
+      // Limit accumulated context to prevent token overflow
       const MAX_CONTEXT_LENGTH = 15000;
       if (accumulatedContext.length > MAX_CONTEXT_LENGTH) {
         accumulatedContext = accumulatedContext.slice(-MAX_CONTEXT_LENGTH);
@@ -634,18 +674,30 @@ async function main() {
   const args = process.argv.slice(2);
   const batchArg = args.find(a => a.startsWith('--batch='));
   const questionArg = args.find(a => a.startsWith('--question='));
+  const questionsArg = args.find(a => a.startsWith('--questions='));
+  const answersArg = args.find(a => a.startsWith('--answers='));
   const solveMode = args.includes('--solve');
 
+  // Determine file paths (custom or default)
+  const questionsPath = questionsArg ? questionsArg.split('=')[1] : './questions.json';
+  const answersPath = answersArg ? answersArg.split('=')[1] : './answers.json';
+  const useCustomFiles = questionsArg !== undefined;
+
   // Load data
-  const questionsFile = Bun.file('./questions.json');
+  const questionsFile = Bun.file(questionsPath);
   const questionsData = await questionsFile.json();
+  console.log(`Loaded ${questionsData.length} questions from ${questionsPath}`);
 
   // Load answers (optional in solve mode)
   let answersData: Record<string, string> = {};
   if (!solveMode) {
-    const answersFile = Bun.file('./answers.json');
+    const answersFile = Bun.file(answersPath);
     answersData = await answersFile.json();
+    console.log(`Loaded ${Object.keys(answersData).length} answers from ${answersPath}`);
   }
+
+  // Use full batches for custom files (no skipped questions), default batches otherwise
+  const BATCHES = useCustomFiles ? FULL_BATCHES : DEFAULT_BATCHES;
 
   let questionIds: number[];
 

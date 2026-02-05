@@ -1,7 +1,19 @@
 /**
- * Serper Web Search Tool (Google Search API)
+ * Web Search Tool - Simplified for Gemini-first approach
+ *
+ * Primary: geminiContextSearch() - Pass question + options, get explanation
+ * Fallback: webSearch() - Legacy Serper-based search for raw results
  */
 
+import { geminiSearch, vertexSearch, vertexSearchMultiple as vertexMultiple } from './vertex-search';
+
+// New simplified interface for Gemini search
+export interface GeminiContextResponse {
+  explanation: string;      // AI-generated research context
+  sources: string[];        // Source attributions
+}
+
+// Legacy interface for backward compatibility
 export interface SearchResult {
   title: string;
   url: string;
@@ -14,6 +26,7 @@ export interface SearchResponse {
   query: string;
   results: SearchResult[];
   totalResults: number;
+  summary?: string;  // AI-generated summary
 }
 
 const SERPER_API_URL = 'https://google.serper.dev/search';
@@ -26,6 +39,36 @@ function getSerperApiKey(): string {
   return apiKey;
 }
 
+/**
+ * Check if Gemini Search is properly configured (check at runtime)
+ */
+export function isGeminiConfigured(): boolean {
+  return process.env.USE_VERTEX_AI === 'true' && !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
+}
+
+/**
+ * PRIMARY: Search using Gemini with question + options context
+ * Returns a comprehensive explanation, not raw URLs/snippets
+ */
+export async function geminiContextSearch(
+  question: string,
+  options: Record<string, string>
+): Promise<GeminiContextResponse> {
+  if (!isGeminiConfigured()) {
+    throw new Error('Gemini search not configured. Set USE_VERTEX_AI=true and GOOGLE_APPLICATION_CREDENTIALS');
+  }
+
+  const result = await geminiSearch(question, options);
+  return {
+    explanation: result.explanation,
+    sources: result.sources
+  };
+}
+
+/**
+ * LEGACY: Original webSearch function for backward compatibility
+ * Use geminiContextSearch() for new code
+ */
 export async function webSearch(
   query: string,
   options?: {
@@ -35,6 +78,29 @@ export async function webSearch(
 ): Promise<SearchResponse> {
   const numResults = options?.numResults ?? 5;
 
+  // Use Vertex AI Search if configured
+  if (isGeminiConfigured()) {
+    try {
+      const vertexResult = await vertexSearch(query, { numResults });
+      return {
+        query,
+        results: vertexResult.results.map((r: any, i: number) => ({
+          title: r.title || '',
+          url: r.url || '',
+          snippet: r.snippet || '',
+          source: 'gemini',
+          score: 1 - i * 0.1,
+        })),
+        totalResults: vertexResult.results.length,
+        summary: vertexResult.summary,
+      };
+    } catch (error) {
+      console.error('Gemini Search failed, falling back to Serper:', error);
+      // Fall through to Serper
+    }
+  }
+
+  // Serper (default or fallback)
   try {
     const response = await fetch(SERPER_API_URL, {
       method: 'POST',
@@ -43,7 +109,7 @@ export async function webSearch(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        q: query,
+        q: query.slice(0, 200), // Limit query length for Serper
         num: numResults,
       }),
     });
@@ -61,7 +127,7 @@ export async function webSearch(
         url: (r.link as string) || '',
         snippet: (r.snippet as string) || '',
         source: 'google',
-        score: 1 - i * 0.1, // Higher score for earlier results
+        score: 1 - i * 0.1,
       }));
 
     // Also include knowledge graph if available
@@ -104,6 +170,35 @@ export async function webSearch(
 }
 
 export async function searchMultiple(queries: string[]): Promise<Map<string, SearchResponse>> {
+  // Use Vertex AI Search if configured
+  if (isGeminiConfigured()) {
+    try {
+      const vertexResults = await vertexMultiple(queries);
+      const results = new Map<string, SearchResponse>();
+
+      for (const [query, vertexResult] of vertexResults) {
+        results.set(query, {
+          query,
+          results: vertexResult.results.map((r: any, i: number) => ({
+            title: r.title || '',
+            url: r.url || '',
+            snippet: r.snippet || '',
+            source: 'gemini',
+            score: 1 - i * 0.1,
+          })),
+          totalResults: vertexResult.results.length,
+          summary: vertexResult.summary,
+        });
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Gemini Search multiple failed, falling back to Serper:', error);
+      // Fall through to Serper
+    }
+  }
+
+  // Serper (default or fallback)
   const results = new Map<string, SearchResponse>();
 
   // Execute searches in parallel

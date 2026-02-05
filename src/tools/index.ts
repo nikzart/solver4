@@ -2,8 +2,8 @@
  * Tools Index - Export all tools
  */
 
-export { webSearch, searchMultiple, formatSearchResultsForPrompt } from './web-search';
-export type { SearchResult, SearchResponse } from './web-search';
+export { geminiContextSearch, isGeminiConfigured, webSearch, searchMultiple, formatSearchResultsForPrompt } from './web-search';
+export type { GeminiContextResponse, SearchResult, SearchResponse } from './web-search';
 
 export { scrapeUrl, scrapeMultiple, extractRelevantContent, formatScrapedContentForPrompt } from './scraper';
 export type { ScrapeResult } from './scraper';
