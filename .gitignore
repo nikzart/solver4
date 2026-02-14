@@ -5,3 +5,4 @@ logs/
 .DS_Store
 bun.lockb
 full_test_output.txt
+service-account.json

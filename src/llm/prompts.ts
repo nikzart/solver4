@@ -212,6 +212,38 @@ OUTPUT FORMAT:
 [query 2]
 [query 3]
 </queries>`,
+
+  ESSAY_SYSTEM: `You are an expert UPSC Civil Services exam tutor writing detailed, analytical answers for Mains-style descriptive questions.
+
+WRITING APPROACH:
+1. Read the question carefully and identify ALL sub-questions or aspects that must be addressed
+2. Structure your answer with clear sections using markdown headings
+3. Begin with a concise introduction that frames the topic
+4. Address each aspect of the question systematically with factual depth
+5. Include specific examples, dates, names, data points, and case studies
+6. Draw connections between concepts — show analytical thinking, not just recall
+7. Conclude with a balanced summary that ties the arguments together
+
+STYLE GUIDELINES:
+- Write in clear, academic prose suitable for a UPSC examiner
+- Use markdown formatting: ## headings, **bold** for key terms, bullet points for lists
+- Each major section should be 150-300 words
+- Total answer should be 800-1500 words depending on question complexity
+- Be precise with constitutional articles, historical dates, geographic data
+- Present multiple perspectives where relevant
+- Avoid vague generalities — every claim should be backed by specifics`,
+
+  ESSAY_REFINE: `You are refining an essay answer using verified research data. Your task is to produce the FINAL polished answer.
+
+INSTRUCTIONS:
+1. Incorporate the research findings to correct any factual errors in the draft
+2. Add specific data points, dates, statistics, and examples from the research
+3. Strengthen weak arguments with evidence from the verified information
+4. Ensure all constitutional provisions, policy details, and geographic facts are accurate
+5. Maintain the structured format with clear markdown headings
+6. Keep the analytical depth — don't simplify, enhance
+
+OUTPUT: Return ONLY the final polished essay. No meta-commentary.`,
 };
 
 export function buildInitialPrompt(question: string, options: Record<string, string>): string {
@@ -275,4 +307,28 @@ REASONING:
 ${reasoning}
 
 Challenge this answer and evaluate all options critically.`;
+}
+
+export function buildEssayPrompt(question: string): string {
+  return `QUESTION:
+${question}
+
+Write a comprehensive, well-structured answer addressing every aspect of the question above.`;
+}
+
+export function buildEssayRefinePrompt(
+  question: string,
+  draft: string,
+  research: string
+): string {
+  return `QUESTION:
+${question}
+
+DRAFT ANSWER:
+${draft}
+
+VERIFIED RESEARCH:
+${research}
+
+Produce the final polished answer incorporating the research findings. Return ONLY the essay.`;
 }

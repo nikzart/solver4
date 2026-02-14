@@ -1,0 +1,626 @@
+openapi: "3.0.3"
+info:
+  title: UPSC Solver API
+  description: |
+    AI-powered UPSC Civil Services exam question solver with 99% accuracy.
+
+    Features:
+    - Single question solving with detailed analysis
+    - Batch solving with evaluation scoring
+    - Real-time SSE streaming for progress updates
+    - Web search verification for accuracy
+  version: "1.0.0"
+  contact:
+    name: API Support
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:5005/api/v1
+    description: Local development
+
+security:
+  - apiKey: []
+
+tags:
+  - name: Solve
+    description: Question solving endpoints
+  - name: Health
+    description: Health check endpoints
+
+paths:
+  /solve:
+    post:
+      tags:
+        - Solve
+      operationId: solveQuestion
+      summary: Solve a single UPSC question
+      description: |
+        Solves a multiple choice UPSC question using AI reasoning and web search verification.
+
+        Supports both JSON response and SSE streaming modes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SolveRequest'
+            examples:
+              factual:
+                summary: Factual recall question
+                value:
+                  question: "Which of the following countries are well known as the two largest cocoa producers in the world?"
+                  options:
+                    a: "Algeria and Morocco"
+                    b: "Botswana and Namibia"
+                    c: "Côte d'Ivoire and Ghana"
+                    d: "Madagascar and Mozambique"
+              statement:
+                summary: Statement analysis question
+                value:
+                  question: "Consider the following statements: Statement-I: The atmosphere is heated more by incoming solar radiation than by terrestrial radiation. Statement-II: The atmosphere is more transparent to incoming solar radiation. Which is correct?"
+                  options:
+                    a: "Both correct, II explains I"
+                    b: "Both correct, II does not explain I"
+                    c: "I correct, II incorrect"
+                    d: "I incorrect, II correct"
+              streaming:
+                summary: With SSE streaming enabled
+                value:
+                  question: "What is the capital of India?"
+                  options:
+                    a: "Mumbai"
+                    b: "New Delhi"
+                    c: "Kolkata"
+                    d: "Chennai"
+                  stream: true
+      responses:
+        '200':
+          description: Question solved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SolveResponse'
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE stream of events (when stream=true)
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - API key missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service unavailable (LLM or search error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /solve/batch:
+    post:
+      tags:
+        - Solve
+      operationId: solveBatch
+      summary: Solve multiple questions with optional evaluation
+      description: |
+        Solves multiple questions in parallel. Optionally provide an answer key
+        for automatic scoring and accuracy calculation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchSolveRequest'
+            examples:
+              simple:
+                summary: Batch without evaluation
+                value:
+                  questions:
+                    - id: 1
+                      question: "Which is the largest cocoa producer?"
+                      options:
+                        a: "Brazil"
+                        b: "Ghana"
+                        c: "India"
+                        d: "China"
+                    - id: 2
+                      question: "The Ganga originates from which glacier?"
+                      options:
+                        a: "Siachen"
+                        b: "Gangotri"
+                        c: "Zemu"
+                        d: "Pindari"
+              evaluation:
+                summary: Batch with answer key for evaluation
+                value:
+                  questions:
+                    - id: 1
+                      question: "Which is the largest cocoa producer?"
+                      options:
+                        a: "Brazil"
+                        b: "Ghana"
+                        c: "India"
+                        d: "China"
+                  answerKey:
+                    "1": "b"
+      responses:
+        '200':
+          description: Batch solved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchSolveResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /explain:
+    post:
+      tags:
+        - Solve
+      operationId: explainQuestion
+      summary: Generate detailed essay answer for a descriptive question
+      description: |
+        Produces a well-researched, markdown-formatted essay answer for UPSC Mains-style
+        descriptive questions. Uses AI reasoning combined with web search verification.
+        Supports SSE streaming for real-time progress updates.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExplainRequest'
+            examples:
+              history:
+                summary: History essay question
+                value:
+                  question: "Analyze the evolution of the Gandhara School of Art during the Kushana period."
+              streaming:
+                summary: With SSE streaming
+                value:
+                  question: "Discuss the role of the RBI in managing inflation."
+                  stream: true
+      responses:
+        '200':
+          description: Essay generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExplainResponse'
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE stream of events (when stream=true)
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health:
+    get:
+      tags:
+        - Health
+      operationId: healthCheck
+      summary: Check API health status
+      description: Returns the health status of the API and its dependent services.
+      security: []
+      responses:
+        '200':
+          description: Health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authentication
+
+  schemas:
+    Options:
+      type: object
+      required:
+        - a
+        - b
+        - c
+        - d
+      properties:
+        a:
+          type: string
+          minLength: 1
+          description: Option A text
+        b:
+          type: string
+          minLength: 1
+          description: Option B text
+        c:
+          type: string
+          minLength: 1
+          description: Option C text
+        d:
+          type: string
+          minLength: 1
+          description: Option D text
+
+    SolveConfig:
+      type: object
+      properties:
+        maxIterations:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 3
+          description: Maximum reasoning iterations
+        enableSearch:
+          type: boolean
+          default: true
+          description: Enable web search verification
+        confidenceThreshold:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.93
+          description: Confidence threshold to stop iterations
+
+    SolveRequest:
+      type: object
+      required:
+        - question
+        - options
+      properties:
+        question:
+          type: string
+          minLength: 10
+          description: The full question text
+        options:
+          $ref: '#/components/schemas/Options'
+        config:
+          $ref: '#/components/schemas/SolveConfig'
+        stream:
+          type: boolean
+          default: false
+          description: Enable SSE streaming for real-time progress
+
+    Classification:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - STATEMENT_ANALYSIS
+            - STATEMENT_EXPLAIN
+            - MATCH_PAIRS
+            - HOW_MANY_CORRECT
+            - SELECT_CORRECT
+            - FACTUAL_RECALL
+            - LOGICAL_REASONING
+            - SEQUENCE_ORDER
+          description: Question type classification
+        subjectArea:
+          type: string
+          enum:
+            - POLITY
+            - GEOGRAPHY
+            - ENVIRONMENT
+            - SCIENCE_TECH
+            - ECONOMY
+            - HISTORY
+            - CURRENT_AFFAIRS
+            - GENERAL
+          description: Subject area classification
+        difficulty:
+          type: string
+          enum:
+            - LOW
+            - MEDIUM
+            - HIGH
+          description: Difficulty level
+
+    SolveMetadata:
+      type: object
+      properties:
+        iterations:
+          type: integer
+          description: Number of reasoning iterations performed
+        searchCount:
+          type: integer
+          description: Number of web searches performed
+        processingTimeMs:
+          type: integer
+          description: Total processing time in milliseconds
+
+    SolveResponse:
+      type: object
+      required:
+        - answer
+        - confidence
+        - analysis
+        - classification
+        - sources
+        - metadata
+      properties:
+        answer:
+          type: string
+          enum: [a, b, c, d]
+          description: The selected answer
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Confidence score (0.0 to 1.0)
+        analysis:
+          type: string
+          description: Detailed reasoning explanation
+        classification:
+          $ref: '#/components/schemas/Classification'
+        sources:
+          type: array
+          items:
+            type: string
+          description: URLs/references used for verification
+        metadata:
+          $ref: '#/components/schemas/SolveMetadata'
+
+    BatchQuestion:
+      type: object
+      required:
+        - id
+        - question
+        - options
+      properties:
+        id:
+          oneOf:
+            - type: string
+            - type: integer
+          description: Unique question identifier
+        question:
+          type: string
+          minLength: 10
+          description: The question text
+        options:
+          $ref: '#/components/schemas/Options'
+
+    BatchConfig:
+      type: object
+      properties:
+        concurrency:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 20
+          description: Number of parallel question processing
+        maxIterations:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 3
+          description: Max iterations per question
+
+    BatchSolveRequest:
+      type: object
+      required:
+        - questions
+      properties:
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchQuestion'
+          minItems: 1
+          maxItems: 100
+          description: Array of questions to solve
+        answerKey:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of question ID to correct answer for evaluation
+        config:
+          $ref: '#/components/schemas/BatchConfig'
+
+    BatchResult:
+      type: object
+      properties:
+        id:
+          oneOf:
+            - type: string
+            - type: integer
+          description: Question identifier
+        answer:
+          type: string
+          enum: [a, b, c, d]
+          description: The selected answer
+        confidence:
+          type: number
+          description: Confidence score
+        analysis:
+          type: string
+          description: Reasoning explanation
+        correct:
+          type: boolean
+          description: Whether answer matches expected (only with answerKey)
+        expectedAnswer:
+          type: string
+          description: Expected answer from answerKey (only with answerKey)
+
+    BatchSummary:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: Total questions
+        correct:
+          type: integer
+          description: Number of correct answers
+        accuracy:
+          type: number
+          description: Accuracy percentage
+
+    BatchSolveResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchResult'
+          description: Results for each question
+        summary:
+          $ref: '#/components/schemas/BatchSummary'
+          description: Accuracy summary (only with answerKey)
+        metadata:
+          type: object
+          properties:
+            totalProcessingTimeMs:
+              type: integer
+              description: Total processing time
+            averageConfidence:
+              type: number
+              description: Average confidence across all questions
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - healthy
+            - degraded
+            - unhealthy
+          description: Overall health status
+        version:
+          type: string
+          description: API version
+        services:
+          type: object
+          properties:
+            llm:
+              type: object
+              properties:
+                status:
+                  type: string
+                provider:
+                  type: string
+            search:
+              type: object
+              properties:
+                status:
+                  type: string
+                provider:
+                  type: string
+        timestamp:
+          type: string
+          format: date-time
+          description: Health check timestamp
+
+    ExplainRequest:
+      type: object
+      required:
+        - question
+      properties:
+        question:
+          type: string
+          minLength: 10
+          description: The descriptive/essay question to answer
+        config:
+          type: object
+          properties:
+            maxTokens:
+              type: integer
+              minimum: 500
+              maximum: 8000
+              default: 4096
+              description: Maximum output tokens for the essay
+            enableSearch:
+              type: boolean
+              default: true
+              description: Enable web search for research
+        stream:
+          type: boolean
+          default: false
+          description: Enable SSE streaming for real-time progress
+
+    ExplainResponse:
+      type: object
+      required:
+        - explanation
+        - sources
+        - classification
+        - metadata
+      properties:
+        explanation:
+          type: string
+          description: Full essay answer in markdown format (800-2000 words)
+        sources:
+          type: array
+          items:
+            type: string
+          description: References used during research
+        classification:
+          $ref: '#/components/schemas/Classification'
+        metadata:
+          $ref: '#/components/schemas/SolveMetadata'
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - UNAUTHORIZED
+                - INVALID_REQUEST
+                - INVALID_QUESTION
+                - INVALID_OPTIONS
+                - RATE_LIMITED
+                - LLM_ERROR
+                - SEARCH_ERROR
+                - TIMEOUT
+                - INTERNAL_ERROR
+                - NOT_FOUND
+              description: Error code
+            message:
+              type: string
+              description: Human-readable error message
+            details:
+              type: object
+              description: Additional error details

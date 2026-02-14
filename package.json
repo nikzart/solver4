@@ -6,6 +6,8 @@
   "private": true,
   "scripts": {
     "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/api/server.ts",
+    "serve": "bun run src/api/server.ts",
     "test": "bun run src/index.ts --question=1",
     "test:10": "bun run src/index.ts --start=0 --end=10",
     "all": "bun run src/index.ts",
@@ -19,9 +21,12 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@hono/zod-validator": "^0.7.6",
     "chalk": "^5.6.2",
     "cli-progress": "^3.12.0",
     "cli-table3": "^0.6.5",
+    "google-auth-library": "^10.5.0",
+    "hono": "^4.11.7",
     "zod": "^4.3.6"
   }
 }
